@@ -8,7 +8,7 @@ DATE    := $(shell date -u)
 VERSION := $(VER) (commit $(COMMIT)) $(DATE)
 
 GOSOURCES := $(shell find . \( -name '*.go' \))
-TEMPLATES := $(shell find /tmpl/templates \( -name '*' \))
+TEMPLATES := $(shell find tmpl/templates \( -name '*' \))
 
 THISFILE := $(lastword $(MAKEFILE_LIST))
 THISDIR  := $(shell dirname $(realpath $(THISFILE)))
@@ -22,7 +22,7 @@ PATH := $(GOBIN):$(PATH)
 export GOBIN
 
 all:
-
+ 	
 clean:
 	-rm bin/ccDropper
 	-rm /tmpl/bindata.go
@@ -37,9 +37,9 @@ remove-build-deps:
 bin/go-bindata:
 	go install github.com/go-bindata/go-bindata/v3/go-bindata
 
-/tmpl/bindata.go: $(TEMPLATES) bin/go-bindata
-	$(GOBIN)/go-bindata -pkg tmpl -prefix src/tmpl/templates -o src/tmpl/bindata.go src/tmpl/templates/...
+tmpl/bindata.go: $(TEMPLATES) bin/go-bindata
+	$(GOBIN)/go-bindata -pkg tmpl -prefix tmpl/templates -o tmpl/bindata.go tmpl/templates/...
 
 bin/ccDropper: $(GOSOURCES) tmpl/bindata.go
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'phenix/version.Version=$(VERSION)' -s -w" -trimpath -o bin/ccDropper src/ccDropper.go
+	CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'phenix/version.Version=$(VERSION)' -s -w" -trimpath -o bin/phenix-ccDropper src/ccDropper.go

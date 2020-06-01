@@ -10,16 +10,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"bytes"
 )
 
 const NAME = "ccDropper"
-const INJECTPATH = "/minimega/"
 
-var universalConfig int = 0
+type Host struct {
+	Hostname string
+	Cfg      AgentConfig `yaml:",inline"`
+}
 
-type HostAgentConfig struct {
-	Hostname  string `yaml:"hostname"`
+type AgentConfig struct {
 	AgentPath string `yaml:"agent_path"`
 	AutoStart bool   `yaml:"auto_start"`
 	Agent     string `yaml:"agent"`
@@ -27,17 +27,18 @@ type HostAgentConfig struct {
 }
 
 type DropperConfig struct {
-	Hosts []HostAgentConfig `yaml: "cc_hosts"`
+	Generic  AgentConfig 
+	Specific []Host
 }
 
 func Name() string {
 	return NAME
 }
 
-func agentPath(ext string, agent string, path string) (string,string) {
+func agentPath(ext string, agent string, path string) string {
 	dir, err := os.Open(path)
 	if err != nil {
-		log.Fatal("ccDropper: Error opening agent directory, check scenario \n"+"Path: "+path+"\n", err)
+		log.Fatal("ccDropper: Error opening agent directory, check scenario \n"+"Path: "+path+"\n" ,err)
 	} else {
 		files, er := dir.Readdir(-1)
 		dir.Close()
@@ -46,35 +47,92 @@ func agentPath(ext string, agent string, path string) (string,string) {
 		}
 		for _, file := range files {
 			if strings.Contains(file.Name(), agent) {
-				if ext != "" && strings.Contains(file.Name(),".") && strings.HasSuffix(file.Name(), ext) {
-					return filepath.Join(path, file.Name()),INJECTPATH+file.Name()
-				}else if strings.HasSuffix(file.Name(), ext) && !strings.Contains(file.Name(),".") { 
-					return filepath.Join(path, file.Name()),INJECTPATH+file.Name()
-
+				if ext != "" && strings.HasSuffix(file.Name(), ext) {
+					return filepath.Join(path, file.Name())
 				}
+				return filepath.Join(path, file.Name())
 			}
 		}
 	}
-	return "",""
+	return ""
 }
 
+func injectCC(node *v1.Node, config DropperConfig, startupDir string) error {
+	agentDst := "/minimega/"
+	agentCfg := config.Generic
+	ext := ""
+	for _, host := range config.Specific {
+		if host.Hostname == node.General.Hostname {
+			agentCfg = host.Cfg
+		}
+	}
 
-func getVms(spec *v1.ExperimentSpec) [] *v1.Node {
+	switch node.Hardware.OSType {
+	case v1.OSType_Windows:
+		ext = "exe"
+
+		var (
+			startupFile = startupDir + "/" + node.General.Hostname + "-startup.ps1"
+			schedFile   = startupDir + "/" + node.General.Hostname + "-scheduler.cmd"
+		)
+
+		a := &v1.Injection{
+			Src: startupFile,
+			Dst: agentDst + "startup.ps1",
+		}
+		b := &v1.Injection{
+			Src: schedFile,
+			Dst: "ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/CommandAndControl.cmd",
+		}
+
+		node.Injections = append(node.Injections, a, b)
+
+	case v1.OSType_Linux, v1.OSType_RHEL, v1.OSType_CentOS:
+		ext = ""
+
+		var (
+			startupFile = startupDir + "/" + node.General.Hostname + "-startup.sh"
+			schedFile   = startupDir + "/" + node.General.Hostname + "-startup.service"
+		)
+		a := &v1.Injection{
+			Src:         startupFile,
+			Dst:         agentDst + "startup.sh",
+			Description: "",
+		}
+		b := &v1.Injection{
+			Src:         schedFile,
+			Dst:         "/etc/systemd/system/CommandAndControl.service",
+			Description: "",
+		}
+		node.Injections = append(node.Injections, a, b)
+
+	}
+	//inject the actual agent
+	a := &v1.Injection{
+		Src:         agentPath(ext, agentCfg.Agent, agentCfg.AgentPath),
+		Dst:         agentDst,
+		Description: "",
+	}
+	node.Injections = append(node.Injections, a)
+	return nil
+}
+
+func getVms(spec *v1.ExperimentSpec) []v1.Node {
 	vms := spec.Topology.Nodes
 	not_vms := spec.Topology.FindNodesWithLabels("hitl")
-	var vmList [] *v1.Node
+	var vmList []v1.Node
 	if len(not_vms) > 0 {
 		for _, vm := range vms {
 			for _, not_vm := range not_vms {
 				if vm.General.Hostname != not_vm.General.Hostname {
-					vmList = append(vmList, vm)
+					vmList = append(vmList, *vm)
 				}
 			}
 		}
 		return vmList
 	}
 	for _, vm := range vms {
-		vmList = append(vmList, vm)
+		vmList = append(vmList,*vm)
 	}
 	return vmList
 }
@@ -82,13 +140,12 @@ func getVms(spec *v1.ExperimentSpec) [] *v1.Node {
 func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, node := range vms {
-		log.Printf("Configuring Host %s\n",node.General.Hostname)
-		agentCfg := config.Hosts[universalConfig]
+		agentDst := "/minimega/"
+		agentCfg := config.Generic
 		ext := ""
-		for _, host := range config.Hosts {
+		for _, host := range config.Specific {
 			if host.Hostname == node.General.Hostname {
-				log.Printf("Found custom config for host %s\n",host.Hostname)
-				agentCfg = host
+				agentCfg = host.Cfg
 			}
 		}
 
@@ -103,15 +160,12 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 
 			a := &v1.Injection{
 				Src: startupFile,
-				Dst: INJECTPATH + "startup.ps1",
+				Dst: agentDst + "startup.ps1",
 			}
 			b := &v1.Injection{
 				Src: schedFile,
 				Dst: "ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/CommandAndControl.cmd",
 			}
-
-			log.Print(" Windows Injections\n")
-			log.Printf("%v\n%v\n",a,b)
 
 			node.Injections = append(node.Injections, a, b)
 
@@ -124,7 +178,7 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 			)
 			a := &v1.Injection{
 				Src:         startupFile,
-				Dst:         INJECTPATH + "startup.sh",
+				Dst:         agentDst + "startup.sh",
 				Description: "",
 			}
 			b := &v1.Injection{
@@ -132,27 +186,15 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 				Dst:         "/etc/systemd/system/CommandAndControl.service",
 				Description: "",
 			}
-			log.Print(" Linux Injections\n")
-			log.Printf("%v\n%v\n",a,b)
-
 			node.Injections = append(node.Injections, a, b)
 
 		}
-		
-		agentSrc,agentDst := agentPath(ext, agentCfg.Agent, agentCfg.AgentPath)
-		if len(agentSrc) < 2 {
-			erro := fmt.Sprintf("Agent not found when looking for %s.%s in %s",agentCfg.Agent,ext,agentCfg.AgentPath)
-			log.Fatal(erro)
-		}
+		//inject the actual agent
 		a := &v1.Injection{
-			Src:	agentSrc,
-			Dst:    agentDst,
+			Src:         agentPath(ext, agentCfg.Agent, agentCfg.AgentPath),
+			Dst:         agentDst,
 			Description: "",
 		}
-		log.Print(" Agent Injection\n")
-		log.Printf("%v\n",a)
-
-
 		node.Injections = append(node.Injections, a)
 	}
 }
@@ -160,39 +202,39 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 func start(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, vm := range vms {
-		agentCfg := config.Hosts[universalConfig]
-		for _, host := range config.Hosts {
+		agentCfg := config.Generic
+		for _, host := range config.Specific {
 			if host.Hostname == vm.General.Hostname {
-				agentCfg = host
+				agentCfg = host.Cfg
 			}
 		}
 		if vm.Type == "Router" {
 			file := startupDir + "/" + vm.General.Hostname + "-startup.sh"
-			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file, 0755); err != nil {
+			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file); err != nil {
 				log.Fatal("generating linux command and control startup script: ", err)
 			}
 			file = startupDir + "/" + vm.General.Hostname + "-startup.service"
-			if err := tmpl.CreateFileFromTemplate("linux-service.tmpl", agentCfg, file, 0644); err != nil {
+			if err := tmpl.CreateFileFromTemplate("linux-service.tmpl", agentCfg, file); err != nil {
 				log.Fatal("generating linux command and control service script: ", err)
 			}
 
 		} else if vm.Hardware.OSType == v1.OSType_Linux {
 			file := startupDir + "/" + vm.General.Hostname + "-startup.sh"
-			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file, 0755); err != nil {
+			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file); err != nil {
 				log.Fatal("generating linux command and control startup script: ", err)
 			}
 			file = startupDir + "/" + vm.General.Hostname + "-startup.service"
-			if err := tmpl.CreateFileFromTemplate("linux-service.tmpl", agentCfg, file, 0644); err != nil {
+			if err := tmpl.CreateFileFromTemplate("linux-service.tmpl", agentCfg, file); err != nil {
 				log.Fatal("generating linux command and control service script: ", err)
 			}
 
 		} else if vm.Hardware.OSType == v1.OSType_Windows {
 			file := startupDir + "/" + vm.General.Hostname + "-startup.ps1"
-			if err := tmpl.CreateFileFromTemplate("windows_startup.tmpl", agentCfg, file, 0755); err != nil {
+			if err := tmpl.CreateFileFromTemplate("windows_startup.tmpl", agentCfg, file); err != nil {
 				log.Fatal("generating windows command and control startup script: ", err)
 			}
 			file = startupDir + "/" + vm.General.Hostname + "-scheduler.cmd"
-			if err := tmpl.CreateFileFromTemplate("windows-scheduler.tmpl", agentCfg, file,0755); err != nil {
+			if err := tmpl.CreateFileFromTemplate("windows-scheduler.tmpl", agentCfg, file); err != nil {
 				log.Fatal("generating windows command and control service script: ", err)
 			}
 		}
@@ -212,10 +254,10 @@ func main() {
 	logFile, err := os.Create("/tmp/ccDropperLog")
 	defer logFile.Close()
 	log.SetOutput(logFile)
-	if err != nil {
+	if err != nil { 
 		log.Fatal("ccDropper: Can't create log file ... exiting")
 	}
-	log.Println("Appliction Start")
+
 	var spec v1.ExperimentSpec
 	mode := os.Args[1]
 	var config DropperConfig
@@ -229,61 +271,58 @@ func main() {
 	for _, e := range spec.Scenario.Apps.Experiment {
 		if e.Name == NAME {
 			log.Print("Found config")
-			//log.Print(e.Metadata["cc_hosts"])
-			vEncoding := ""
-			for i, hostConfig := range e.Metadata["cc_hosts"].([]interface{}) {
-				gg := ""
-				for k, v := range hostConfig.(map[string]interface{}) {
-					switch v.(type) {
-					case float32, float64, int8, int16, int32, int64, uint8, uint16, uint32, uint64, int, uint:
-						vEncoding = "%v."
-					case bool:
-						vEncoding = "%v"
-					case string:
-						vEncoding = "\"%v\""
-					}
-					gg += fmt.Sprintf("%s: "+vEncoding+"\n", k, v)
-					if k == "*" {
-						universalConfig = i
-					}
-					//log.Printf("Key: %s:%v formated as %T",k,v,v)
-				}
-				//log.Printf("\n%s\n",gg)
-				cfg := HostAgentConfig{}
-				err = yaml.Unmarshal([]byte(gg), &cfg)
-				if err != nil {
-					log.Fatal(err)
-				}
-				//log.Printf("%v", cfg)
-				config.Hosts = append(config.Hosts, cfg)
+			//log.Print(e.Metadata["generic"])
+			//log.Print(e.Metadata["specific"])
+			gg := ""
+			for k,v := range e.Metadata["generic"].(map[string]interface{}) {
+				switch v.(type) {
+				case int:
 
+				}
+				gg += fmt.Sprintf("%s: \"%v\"\n",k,v)
 			}
+			log.Print(gg)
+			cfg := AgentConfig{}
+			err = yaml.Unmarshal([]byte(gg),&cfg)
+			if err !=nil {
+				log.Fatal(err)
+			}
+			log.Printf("%v",cfg)
+			/*config.generic = cfg
+			config.generic.agentPath = e.Metadata["generic"]["agent_path"]
+			config.generic.autoStart = e.Metadata["generic"]["auto_start"]
+			config.generic.agent = e.Metadata["generic"]["agent"]
+			config.generic.agentArgs = e.Metadata["generic"]["agentArgs"]
+			/*for _,spConfig := e.Metadata["specific"] {
+				var hostCfg host
+				host.hostname = spConfig["hostname"]
+				host.cfg.agentPath = spConfig["agent_path"]
+				host.cfg.agent = spConfig["agent"]
+				host.cfg.autoStart = spConfig["auto_start"]
+				host.cfg.agentArgs = spConfig["agent_args"]
+				config.specific = append(config.specific, host)
+			}
+			*/
 		}
 	}
-	log.Print("Config: \n")
 	log.Print(config)
 	//computer the start directory where things will be generated
 	startupDir := spec.BaseDir + "/startup"
 	switch mode {
 	case "configure":
-		log.Print(" ----------------------Configure------------------\n")
 		configure(&spec, config, startupDir)
 	case "start":
-		log.Print(" ----------------------Start------------------\n")
 		start(&spec, config, startupDir)
 	case "postStart":
-		log.Print(" ----------------------Post Start------------------\n")
 		postStart(spec)
 	case "cleanup":
-		log.Print(" ----------------------Cleanup------------------\n")
 		cleanup(spec)
 	}
 	data, err := json.Marshal(spec)
-	out := bytes.NewBuffer(data)
 	if err != nil {
 		log.Fatal("ccDropper: marshaling experiment spec to JSON: %w", err)
 	}
-	fmt.Print(out)
+	fmt.Print(data)
 	f, err := os.Create("/tmp/outJson")
 	defer f.Close()
 	f.Write(data)

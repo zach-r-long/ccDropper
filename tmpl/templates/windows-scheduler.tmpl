@@ -1,4 +1,4 @@
-{{ if autoStart eq true}}
+{{ if .AutoStart eq true}}
 schtasks /create /tn "startup" /sc onlogon /rl highest /tr "powershell.exe -file C:\startup.ps1" /F
 schtasks /run /tn "startup"
 {{ end }}
