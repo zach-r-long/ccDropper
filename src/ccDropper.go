@@ -3,6 +3,7 @@ package main
 import (
 	v1 "../../minimega/phenix/types/version/v1"
 	"../tmpl"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"gopkg.in/yaml.v3"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"bytes"
 )
 
 const NAME = "ccDropper"
@@ -19,11 +19,12 @@ const INJECTPATH = "/minimega/"
 var universalConfig int = 0
 
 type HostAgentConfig struct {
-	Hostname  string `yaml:"hostname"`
-	AgentPath string `yaml:"agent_path"`
-	AutoStart bool   `yaml:"auto_start"`
-	Agent     string `yaml:"agent"`
-	AgentArgs string `yaml:"agent_args"`
+	Hostname    string `yaml:"hostname"`
+	AgentPath   string `yaml:"agent_path"`
+	AutoStart   bool   `yaml:"auto_start"`
+	Agent       string `yaml:"agent"`
+	AgentArgs   string `yaml:"agent_args"`
+	ServiceType string `yaml:"service_type"`
 }
 
 type DropperConfig struct {
@@ -34,7 +35,7 @@ func Name() string {
 	return NAME
 }
 
-func agentPath(ext string, agent string, path string) (string,string) {
+func agentPath(ext string, agent string, path string) (string, string) {
 	dir, err := os.Open(path)
 	if err != nil {
 		log.Fatal("ccDropper: Error opening agent directory, check scenario \n"+"Path: "+path+"\n", err)
@@ -46,23 +47,22 @@ func agentPath(ext string, agent string, path string) (string,string) {
 		}
 		for _, file := range files {
 			if strings.Contains(file.Name(), agent) {
-				if ext != "" && strings.Contains(file.Name(),".") && strings.HasSuffix(file.Name(), ext) {
-					return filepath.Join(path, file.Name()),INJECTPATH+file.Name()
-				}else if strings.HasSuffix(file.Name(), ext) && !strings.Contains(file.Name(),".") { 
-					return filepath.Join(path, file.Name()),INJECTPATH+file.Name()
+				if ext != "" && strings.Contains(file.Name(), ".") && strings.HasSuffix(file.Name(), ext) {
+					return filepath.Join(path, file.Name()), INJECTPATH + file.Name()
+				} else if strings.HasSuffix(file.Name(), ext) && !strings.Contains(file.Name(), ".") {
+					return filepath.Join(path, file.Name()), INJECTPATH + file.Name()
 
 				}
 			}
 		}
 	}
-	return "",""
+	return "", ""
 }
 
-
-func getVms(spec *v1.ExperimentSpec) [] *v1.Node {
+func getVms(spec *v1.ExperimentSpec) []*v1.Node {
 	vms := spec.Topology.Nodes
 	not_vms := spec.Topology.FindNodesWithLabels("hitl")
-	var vmList [] *v1.Node
+	var vmList []*v1.Node
 	if len(not_vms) > 0 {
 		for _, vm := range vms {
 			for _, not_vm := range not_vms {
@@ -82,12 +82,12 @@ func getVms(spec *v1.ExperimentSpec) [] *v1.Node {
 func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, node := range vms {
-		log.Printf("Configuring Host %s\n",node.General.Hostname)
+		log.Printf("Configuring Host %s\n", node.General.Hostname)
 		agentCfg := config.Hosts[universalConfig]
 		ext := ""
 		for _, host := range config.Hosts {
 			if host.Hostname == node.General.Hostname {
-				log.Printf("Found custom config for host %s\n",host.Hostname)
+				log.Printf("Found custom config for host %s\n", host.Hostname)
 				agentCfg = host
 			}
 		}
@@ -97,13 +97,13 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 			ext = "exe"
 
 			var (
-				startupFile = startupDir + "/" + node.General.Hostname + "-startup.ps1"
-				schedFile   = startupDir + "/" + node.General.Hostname + "-scheduler.cmd"
+				startupFile = startupDir + "/" + node.General.Hostname + "-cc_startup.ps1"
+				schedFile   = startupDir + "/" + node.General.Hostname + "-cc_scheduler.cmd"
 			)
 
 			a := &v1.Injection{
 				Src: startupFile,
-				Dst: INJECTPATH + "startup.ps1",
+				Dst: INJECTPATH + "cc_startup.ps1",
 			}
 			b := &v1.Injection{
 				Src: schedFile,
@@ -111,7 +111,7 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 			}
 
 			log.Print(" Windows Injections\n")
-			log.Printf("%v\n%v\n",a,b)
+			log.Printf("%v\n%v\n", a, b)
 
 			node.Injections = append(node.Injections, a, b)
 
@@ -119,39 +119,63 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 			ext = ""
 
 			var (
-				startupFile = startupDir + "/" + node.General.Hostname + "-startup.sh"
-				schedFile   = startupDir + "/" + node.General.Hostname + "-startup.service"
+				startupFile = startupDir + "/" + node.General.Hostname + "-cc_startup.sh"
+				svcFile     = startupDir + "/" + node.General.Hostname + "-cc_startup.service"
+				svcLink     = startupDir + "/" + node.General.Hostname + "-cc_startup.serviceLink"
 			)
 			a := &v1.Injection{
 				Src:         startupFile,
-				Dst:         INJECTPATH + "startup.sh",
+				Dst:         INJECTPATH + "cc_startup.sh",
 				Description: "",
 			}
-			b := &v1.Injection{
-				Src:         schedFile,
-				Dst:         "/etc/systemd/system/CommandAndControl.service",
-				Description: "",
-			}
-			log.Print(" Linux Injections\n")
-			log.Printf("%v\n%v\n",a,b)
+			if strings.ToLower(agentCfg.ServiceType) == "systemd" {
+				b := &v1.Injection{
+					Src:         svcFile,
+					Dst:         "/etc/systemd/system/CommandAndControl.service",
+					Description: "",
+				}
+				c := &v1.Injection{
+					Src:         svcLink,
+					Dst:         "/etc/systemd/system/multi-user.target.wants/CommandAndControl.service",
+					Description: "",
+				}
 
-			node.Injections = append(node.Injections, a, b)
+				log.Print(" Linux Injections\n")
+				log.Printf("%v\n%v\n", a, b, c)
+
+				node.Injections = append(node.Injections, a, b, c)
+			} else {
+				b := &v1.Injection{
+					Src:         svcFile,
+					Dst:         "/etc/init.d/CommandAndControl",
+					Description: "",
+				}
+				c := &v1.Injection{
+					Src:         svcLink,
+					Dst:         "/etc/rc5.d/S99CommandAndControl",
+					Description: "",
+				}
+
+				log.Print(" Linux Injections\n")
+				log.Printf("%v\n%v\n", a, b, c)
+
+				node.Injections = append(node.Injections, a, b, c)
+			}
 
 		}
-		
-		agentSrc,agentDst := agentPath(ext, agentCfg.Agent, agentCfg.AgentPath)
+
+		agentSrc, agentDst := agentPath(ext, agentCfg.Agent, agentCfg.AgentPath)
 		if len(agentSrc) < 2 {
-			erro := fmt.Sprintf("Agent not found when looking for %s.%s in %s",agentCfg.Agent,ext,agentCfg.AgentPath)
+			erro := fmt.Sprintf("Agent not found when looking for %s.%s in %s", agentCfg.Agent, ext, agentCfg.AgentPath)
 			log.Fatal(erro)
 		}
 		a := &v1.Injection{
-			Src:	agentSrc,
-			Dst:    agentDst,
+			Src:         agentSrc,
+			Dst:         agentDst,
 			Description: "",
 		}
 		log.Print(" Agent Injection\n")
-		log.Printf("%v\n",a)
-
+		log.Printf("%v\n", a)
 
 		node.Injections = append(node.Injections, a)
 	}
@@ -166,33 +190,47 @@ func start(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
 				agentCfg = host
 			}
 		}
-		if vm.Type == "Router" {
-			file := startupDir + "/" + vm.General.Hostname + "-startup.sh"
+		switch vm.Hardware.OSType {
+		case v1.OSType_Linux, v1.OSType_RHEL, v1.OSType_CentOS:
+
+			file := startupDir + "/" + vm.General.Hostname + "-cc_startup.sh"
 			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file, 0755); err != nil {
 				log.Fatal("generating linux command and control startup script: ", err)
 			}
-			file = startupDir + "/" + vm.General.Hostname + "-startup.service"
-			if err := tmpl.CreateFileFromTemplate("linux-service.tmpl", agentCfg, file, 0644); err != nil {
-				log.Fatal("generating linux command and control service script: ", err)
+			if strings.ToLower(agentCfg.ServiceType) == "systemd" {
+
+				file = startupDir + "/" + vm.General.Hostname + "-cc_startup.service"
+				if err := tmpl.CreateFileFromTemplate("systemd-service.tmpl", agentCfg, file, 0644); err != nil {
+					log.Fatal("generating linux command and control service script: ", err)
+				}
+				file = startupDir + "/" + vm.General.Hostname + "-cc_startup.serviceLink"
+				//Symlinks will not overwrite, so remove before attempting to relink
+				os.Remove(file)
+				if err := os.Symlink("/etc/systemd/system/CommandAndControl.service", file); err != nil {
+					log.Fatal("generating linux command and control service link: ", err)
+				}
+			} else {
+				file = startupDir + "/" + vm.General.Hostname + "-cc_startup.service"
+				if err := tmpl.CreateFileFromTemplate("sysinitv-service.tmpl", agentCfg, file, 0755); err != nil {
+					log.Fatal("generating linux command and control service script: ", err)
+				}
+
+				file = startupDir + "/" + vm.General.Hostname + "-cc_startup.serviceLink"
+				//Symlinks will not overwrite, so remove before attempting to relink
+				os.Remove(file)
+				if err := os.Symlink("/etc/init.d/CommandAndControl", file); err != nil {
+					log.Fatal("generating linux command and control service link: ", err)
+				}
+
 			}
 
-		} else if vm.Hardware.OSType == v1.OSType_Linux {
-			file := startupDir + "/" + vm.General.Hostname + "-startup.sh"
-			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file, 0755); err != nil {
-				log.Fatal("generating linux command and control startup script: ", err)
-			}
-			file = startupDir + "/" + vm.General.Hostname + "-startup.service"
-			if err := tmpl.CreateFileFromTemplate("linux-service.tmpl", agentCfg, file, 0644); err != nil {
-				log.Fatal("generating linux command and control service script: ", err)
-			}
-
-		} else if vm.Hardware.OSType == v1.OSType_Windows {
-			file := startupDir + "/" + vm.General.Hostname + "-startup.ps1"
+		case v1.OSType_Windows:
+			file := startupDir + "/" + vm.General.Hostname + "-cc_startup.ps1"
 			if err := tmpl.CreateFileFromTemplate("windows_startup.tmpl", agentCfg, file, 0755); err != nil {
 				log.Fatal("generating windows command and control startup script: ", err)
 			}
-			file = startupDir + "/" + vm.General.Hostname + "-scheduler.cmd"
-			if err := tmpl.CreateFileFromTemplate("windows-scheduler.tmpl", agentCfg, file,0755); err != nil {
+			file = startupDir + "/" + vm.General.Hostname + "-cc_scheduler.cmd"
+			if err := tmpl.CreateFileFromTemplate("windows-scheduler.tmpl", agentCfg, file, 0755); err != nil {
 				log.Fatal("generating windows command and control service script: ", err)
 			}
 		}
