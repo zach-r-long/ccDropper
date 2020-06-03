@@ -1,2 +1,3 @@
 #!/bin/bash
+hostnamectl set-hostname {{.Hostname}}
 /minimega/{{.Agent}} {{.AgentArgs}} &

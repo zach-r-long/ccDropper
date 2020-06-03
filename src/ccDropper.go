@@ -136,7 +136,8 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 				}
 				c := &v1.Injection{
 					Src:         svcLink,
-					Dst:         "/etc/systemd/system/multi-user.target.wants/CommandAndControl.service",
+					//Dst:         "/etc/systemd/system/multi-user.target.wants/CommandAndControl.service",
+					Dst:	    "/lib/systemd/system/multi-user.target.wants/CommandAndControl.service",
 					Description: "",
 				}
 
@@ -194,6 +195,8 @@ func start(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
 		case v1.OSType_Linux, v1.OSType_RHEL, v1.OSType_CentOS:
 
 			file := startupDir + "/" + vm.General.Hostname + "-cc_startup.sh"
+			//Set the hostname so machine shows up in CC with proper hostname
+			agentCfg.Hostname = vm.General.Hostname
 			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file, 0755); err != nil {
 				log.Fatal("generating linux command and control startup script: ", err)
 			}
