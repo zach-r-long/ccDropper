@@ -256,16 +256,18 @@ func main() {
 	if err != nil {
 		log.Fatal("ccDropper: Can't create log file ... exiting")
 	}
-	log.Println("Appliction Start")
+	log.Println("Application Start")
 	var spec v1.ExperimentSpec
+	log.Println("Loaded Spec")
 	mode := os.Args[1]
 	var config DropperConfig
-
+	log.Println("App Performing " +mode+" step")
 	//read in exp spec as json blob
 	err = json.NewDecoder(os.Stdin).Decode(&spec)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	//log.Println(spec)
 	//Get the application configuration data
 	for _, e := range spec.Scenario.Apps.Experiment {
 		if e.Name == NAME {
@@ -295,7 +297,7 @@ func main() {
 				if err != nil {
 					log.Fatal(err)
 				}
-				//log.Printf("%v", cfg)
+				log.Printf("%v", cfg)
 				config.Hosts = append(config.Hosts, cfg)
 
 			}
