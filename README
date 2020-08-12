@@ -1,0 +1,5 @@
+To build follow these steps:
+source env.bash
+make bin/ccDropper
+
+Application will generate a log file at /tmp/ccDropperLog to help debug issues
