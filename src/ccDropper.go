@@ -1,8 +1,9 @@
 package main
 
 import (
-	v1 "../../minimega/phenix/types/version/v1"
-	"../tmpl"
+	"phenix/types"
+	v1 "phenix/types/version/v1"
+	"phenix/app/userApps/ccDropper/tmpl"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -59,9 +60,9 @@ func agentPath(ext string, agent string, path string) (string, string) {
 	return "", ""
 }
 
-func getVms(spec *v1.ExperimentSpec) []*v1.Node {
-	vms := spec.Topology.Nodes
-	not_vms := spec.Topology.FindNodesWithLabels("hitl")
+func getVms(spec *types.Experiment) []*v1.Node {
+	vms := spec.Spec.Topology.Nodes
+	not_vms := spec.Spec.Topology.FindNodesWithLabels("hitl")
 	var vmList []*v1.Node
 	if len(not_vms) > 0 {
 		for _, vm := range vms {
@@ -79,7 +80,7 @@ func getVms(spec *v1.ExperimentSpec) []*v1.Node {
 	return vmList
 }
 
-func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
+func configure(spec *types.Experiment, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, node := range vms {
 		log.Printf("Configuring Host %s\n", node.General.Hostname)
@@ -182,7 +183,7 @@ func configure(spec *v1.ExperimentSpec, config DropperConfig, startupDir string)
 	}
 }
 
-func start(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
+func start(spec *types.Experiment, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, vm := range vms {
 		agentCfg := config.Hosts[universalConfig]
@@ -241,11 +242,11 @@ func start(spec *v1.ExperimentSpec, config DropperConfig, startupDir string) {
 
 }
 
-func postStart(spec v1.ExperimentSpec) error {
+func postStart(spec *types.Experiment) error {
 	return nil
 }
 
-func cleanup(spec v1.ExperimentSpec) error {
+func cleanup(spec *types.Experiment) error {
 	return nil
 }
 
@@ -257,22 +258,21 @@ func main() {
 		log.Fatal("ccDropper: Can't create log file ... exiting")
 	}
 	log.Println("Application Start")
-	var spec v1.ExperimentSpec
+	var spec types.Experiment
 	log.Println("Loaded Spec")
 	mode := os.Args[1]
 	var config DropperConfig
 	log.Println("App Performing " +mode+" step")
-	//read in exp spec as json blob
 	err = json.NewDecoder(os.Stdin).Decode(&spec)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	//log.Println(spec)
+	log.Printf("%+v\n",spec)
 	//Get the application configuration data
-	for _, e := range spec.Scenario.Apps.Experiment {
+	for _, e := range spec.Spec.Scenario.Apps.Experiment {
 		if e.Name == NAME {
 			log.Print("Found config")
-			//log.Print(e.Metadata["cc_hosts"])
+			log.Print(e.Metadata["cc_hosts"])
 			vEncoding := ""
 			for i, hostConfig := range e.Metadata["cc_hosts"].([]interface{}) {
 				gg := ""
@@ -306,7 +306,7 @@ func main() {
 	log.Print("Config: \n")
 	log.Print(config)
 	//computer the start directory where things will be generated
-	startupDir := spec.BaseDir + "/startup"
+	startupDir := spec.Spec.BaseDir + "/startup"
 	switch mode {
 	case "configure":
 		log.Print(" ----------------------Configure------------------\n")
@@ -316,10 +316,10 @@ func main() {
 		start(&spec, config, startupDir)
 	case "postStart":
 		log.Print(" ----------------------Post Start------------------\n")
-		postStart(spec)
+		postStart(&spec)
 	case "cleanup":
 		log.Print(" ----------------------Cleanup------------------\n")
-		cleanup(spec)
+		cleanup(&spec)
 	}
 	data, err := json.Marshal(spec)
 	out := bytes.NewBuffer(data)
