@@ -1,7 +1,7 @@
 docs/bindata.go
 docs/site
 tmpl/bindata.go
-/bin/phenix-ccDropper
+bin
 /agents/
 /pkg
 *.swp

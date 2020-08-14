@@ -3,7 +3,7 @@ package main
 import (
 	"phenix/types"
 	v1 "phenix/types/version/v1"
-	"phenix/app/userApps/ccDropper/tmpl"
+	"phenix/app/ccDropper/tmpl"
 	"bytes"
 	"encoding/json"
 	"fmt"

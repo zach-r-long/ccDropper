@@ -1,5 +1,12 @@
 To build follow these steps:
-source env.bash
-make bin/ccDropper
+
+** Move ccDropper directory inside the phenix tree
+     phenix/app 
+
+** make bin/ccDropper
+
+** Add to path by sourcing install script
+   This can either be done as normal user then pass PATH env var to sudo when calling phenix
+   Or just sudo su and source the install.sh script
 
 Application will generate a log file at /tmp/ccDropperLog to help debug issues
