@@ -21,25 +21,24 @@ PATH := $(GOBIN):$(PATH)
 # Export GOBIN env variable so `go install` picks it up correctly.
 export GOBIN
 
-all:
- 	
+all: 	install-build-deps bin/ccDropper	
 clean:
-	-rm bin/*ccDropper*
-	-rm bin/*bindata*
+	-rm -rf bin
 
 .PHONY: install-build-deps
 install-build-deps: bin/go-bindata
+	go get gopkg.in/yaml.v3
 
 .PHONY: remove-build-deps
 remove-build-deps:
 	$(RM) bin/go-bindata
 
 bin/go-bindata:
-	go install github.com/go-bindata/go-bindata/go-bindata
+	go get github.com/go-bindata/go-bindata/go-bindata
 
 tmpl/bindata.go: $(TEMPLATES) bin/go-bindata
 	$(GOBIN)/go-bindata -pkg tmpl -prefix tmpl/templates -o tmpl/bindata.go tmpl/templates/...
 
 bin/ccDropper: $(GOSOURCES) tmpl/bindata.go
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'phenix/version.Version=$(VERSION)' -s -w" -trimpath -o bin/phenix-app-ccDropper src/ccDropper.go
+	CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'phenix/version.Version=$(VERSION)' -s -w" -trimpath -o bin/phenix-app-ccDropper src/ccDropper.go src/phenixDefs.go

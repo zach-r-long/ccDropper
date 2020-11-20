@@ -1,9 +1,7 @@
 package main
 
-import (
-	"phenix/types"
-	v1 "phenix/types/version/v1"
-	"phenix/app/ccDropper/tmpl"
+import( 
+	"../tmpl"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -60,10 +58,10 @@ func agentPath(ext string, agent string, path string) (string, string) {
 	return "", ""
 }
 
-func getVms(spec *types.Experiment) []*v1.Node {
+func getVms(spec *Experiment) []*Node {
 	vms := spec.Spec.Topology.Nodes
 	not_vms := spec.Spec.Topology.FindNodesWithLabels("hitl")
-	var vmList []*v1.Node
+	var vmList []*Node
 	if len(not_vms) > 0 {
 		for _, vm := range vms {
 			for _, not_vm := range not_vms {
@@ -80,7 +78,7 @@ func getVms(spec *types.Experiment) []*v1.Node {
 	return vmList
 }
 
-func configure(spec *types.Experiment, config DropperConfig, startupDir string) {
+func configure(spec *Experiment, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, node := range vms {
 		log.Printf("Configuring Host %s\n", node.General.Hostname)
@@ -94,7 +92,7 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 		}
 
 		switch node.Hardware.OSType {
-		case v1.OSType_Windows:
+		case OSType_Windows:
 			ext = "exe"
 
 			var (
@@ -102,11 +100,11 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 				schedFile   = startupDir + "/" + node.General.Hostname + "-cc_scheduler.cmd"
 			)
 
-			a := &v1.Injection{
+			a := &Injection{
 				Src: startupFile,
 				Dst: INJECTPATH + "cc_startup.ps1",
 			}
-			b := &v1.Injection{
+			b := &Injection{
 				Src: schedFile,
 				Dst: "ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp/CommandAndControl.cmd",
 			}
@@ -116,7 +114,7 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 
 			node.Injections = append(node.Injections, a, b)
 
-		case v1.OSType_Linux, v1.OSType_RHEL, v1.OSType_CentOS:
+		case OSType_Linux, OSType_RHEL, OSType_CentOS:
 			ext = ""
 
 			var (
@@ -124,18 +122,18 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 				svcFile     = startupDir + "/" + node.General.Hostname + "-cc_startup.service"
 				svcLink     = startupDir + "/" + node.General.Hostname + "-cc_startup.serviceLink"
 			)
-			a := &v1.Injection{
+			a := &Injection{
 				Src:         startupFile,
 				Dst:         INJECTPATH + "cc_startup.sh",
 				Description: "",
 			}
 			if strings.ToLower(agentCfg.ServiceType) == "systemd" {
-				b := &v1.Injection{
+				b := &Injection{
 					Src:         svcFile,
 					Dst:         "/etc/systemd/system/CommandAndControl.service",
 					Description: "",
 				}
-				c := &v1.Injection{
+				c := &Injection{
 					Src:         svcLink,
 					//Dst:         "/etc/systemd/system/multi-user.target.wants/CommandAndControl.service",
 					Dst:	    "/lib/systemd/system/multi-user.target.wants/CommandAndControl.service",
@@ -147,12 +145,12 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 
 				node.Injections = append(node.Injections, a, b, c)
 			} else {
-				b := &v1.Injection{
+				b := &Injection{
 					Src:         svcFile,
 					Dst:         "/etc/init.d/CommandAndControl",
 					Description: "",
 				}
-				c := &v1.Injection{
+				c := &Injection{
 					Src:         svcLink,
 					Dst:         "/etc/rc5.d/S99CommandAndControl",
 					Description: "",
@@ -171,7 +169,7 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 			erro := fmt.Sprintf("Agent not found when looking for %s.%s in %s", agentCfg.Agent, ext, agentCfg.AgentPath)
 			log.Fatal(erro)
 		}
-		a := &v1.Injection{
+		a := &Injection{
 			Src:         agentSrc,
 			Dst:         agentDst,
 			Description: "",
@@ -183,17 +181,21 @@ func configure(spec *types.Experiment, config DropperConfig, startupDir string) 
 	}
 }
 
-func start(spec *types.Experiment, config DropperConfig, startupDir string) {
+func start(spec *Experiment, config DropperConfig, startupDir string) {
 	vms := getVms(spec)
 	for _, vm := range vms {
+		log.Print("Host: "+ vm.General.Hostname)
 		agentCfg := config.Hosts[universalConfig]
+		log.Print("using univeral config")
 		for _, host := range config.Hosts {
 			if host.Hostname == vm.General.Hostname {
 				agentCfg = host
+				log.Print("hosts sepcific config")
 			}
 		}
+
 		switch vm.Hardware.OSType {
-		case v1.OSType_Linux, v1.OSType_RHEL, v1.OSType_CentOS:
+		case OSType_Linux, OSType_RHEL, OSType_CentOS:
 
 			file := startupDir + "/" + vm.General.Hostname + "-cc_startup.sh"
 			//Set the hostname so machine shows up in CC with proper hostname
@@ -201,6 +203,7 @@ func start(spec *types.Experiment, config DropperConfig, startupDir string) {
 			if err := tmpl.CreateFileFromTemplate("linux_startup.tmpl", agentCfg, file, 0755); err != nil {
 				log.Fatal("generating linux command and control startup script: ", err)
 			}
+			log.Print("Generated file: " + file)
 			if strings.ToLower(agentCfg.ServiceType) == "systemd" {
 
 				file = startupDir + "/" + vm.General.Hostname + "-cc_startup.service"
@@ -228,7 +231,7 @@ func start(spec *types.Experiment, config DropperConfig, startupDir string) {
 
 			}
 
-		case v1.OSType_Windows:
+		case OSType_Windows:
 			file := startupDir + "/" + vm.General.Hostname + "-cc_startup.ps1"
 			if err := tmpl.CreateFileFromTemplate("windows_startup.tmpl", agentCfg, file, 0755); err != nil {
 				log.Fatal("generating windows command and control startup script: ", err)
@@ -242,11 +245,11 @@ func start(spec *types.Experiment, config DropperConfig, startupDir string) {
 
 }
 
-func postStart(spec *types.Experiment) error {
+func postStart(spec *Experiment) error {
 	return nil
 }
 
-func cleanup(spec *types.Experiment) error {
+func cleanup(spec *Experiment) error {
 	return nil
 }
 
@@ -258,7 +261,7 @@ func main() {
 		log.Fatal("ccDropper: Can't create log file ... exiting")
 	}
 	log.Println("Application Start")
-	var spec types.Experiment
+	var spec Experiment
 	log.Println("Loaded Spec")
 	mode := os.Args[1]
 	var config DropperConfig
@@ -267,9 +270,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	log.Printf("%+v\n",spec)
+	//log.Printf("%+v\n",spec)
 	//Get the application configuration data
-	for _, e := range spec.Spec.Scenario.Apps.Experiment {
+	for _, e := range spec.Spec.Scenario.Apps {
 		if e.Name == NAME {
 			log.Print("Found config")
 			log.Print(e.Metadata["cc_hosts"])
@@ -288,7 +291,7 @@ func main() {
 					gg += fmt.Sprintf("%s: "+vEncoding+"\n", k, v)
 					if k == "*" {
 						universalConfig = i
-					}
+	}
 					//log.Printf("Key: %s:%v formated as %T",k,v,v)
 				}
 				//log.Printf("\n%s\n",gg)
@@ -311,10 +314,10 @@ func main() {
 	case "configure":
 		log.Print(" ----------------------Configure------------------\n")
 		configure(&spec, config, startupDir)
-	case "start":
+	case "pre-start":
 		log.Print(" ----------------------Start------------------\n")
 		start(&spec, config, startupDir)
-	case "postStart":
+	case "post-start":
 		log.Print(" ----------------------Post Start------------------\n")
 		postStart(&spec)
 	case "cleanup":

@@ -1,12 +1,94 @@
-To build follow these steps:
+                        Command And Control Dropper
+                                 (ccDropper)
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@&        @@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*             *@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@&                  (@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*                     @@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@&/*#@&                       #@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@&                              &@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.         Command and Contol   (@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                 Agents       @@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.                          (@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.                        @@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@&   &@@@                   *@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@,  *@@@@@@@@(                ,@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   @@@@@@@@@@@@@@             @@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@,  *@@@@@@@@@@@@@@@@(         /@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@&   @@@@@@@@@@@@@@@@@   (@@@@&@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@,  *@@@@@@@@@@@@@@@@(   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@%   &@@@@@@@@@@@@@@@@   #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@.  *@@@@@@@@@@@@@@@@(   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@%   &@@@@@@@@@@@@@@@@.  #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@.  *@@@@@@@@@@@@@@@@(  .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@%   &@@@@@@@@@@@@@@@@   #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@.  *@@@@@@@@@@@@@@@@(   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@,  @@@@@@@@@@@@@@@@@   #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@.  @@@@@@@@@@@@@@@/   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@&  #@@@@@@@@@@@@@   #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@%  #@@@@@@@@@@@/   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@,  @@@@@@@%.     %@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@    #@@,     *&@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@.    .@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-** Move ccDropper directory inside the phenix tree
-     phenix/app 
+Phenix user application that will determine operating system from node topology 
+and inject a command and control agent along with auto start scripts based on 
+configuration in scenario.
 
-** make bin/ccDropper
 
-** Add to path by sourcing install script
+Build and Use:
+ 
+   make all
+   
+   Add to path by sourcing install script.
    This can either be done as normal user then pass PATH env var to sudo when calling phenix
-   Or just sudo su and source the install.sh script
+   or just sudo su and source the install.sh script
 
-Application will generate a log file at /tmp/ccDropperLog to help debug issues
+   source install.sh
+   sudo env "PATH=$PATH" phenix ui
+
+   Create ccDroper agents folder
+   sudo mkdir -p /phenix/userdata/ccDropper/agents
+   
+   Copy in Command and Control agents (ex. miniccc)
+   sudo cp /home/ubuntu/minimega/bin/miniccc* /phenix/userdata/ccDropper/agent
+
+   Application will generate a log file at /tmp/ccDropperLog to help debug issues
+
+
+Configuration: 
+   Configuration is done in the scenario file loaded into phenix.
+   Specify ccDropper as an experiment level user app.
+   Metadata allows for per host configuration by hostname in cc_hosts 
+     hostname:  "*" will apply to all hosts unless host is given specific config
+     agent_path: Defines path for application to find user agent
+     agent: Name of user agent on disk 
+     auto_start: Determines if agent auto starts (true / false)
+     service_type: sysinitv / systemd ignored for windows
+     agent_args: String passed to agent at runtime
+
+Example with miniccc agent: 
+
+   spec:
+  apps:
+    experiment:     
+    - name: test-user-app
+      # The map associated with the app name here would contain any
+      # configuration details needed to configure the app.
+      metadata: {}
+    - name: ccDropper
+      metadata:
+        cc_hosts:
+          - hostname: "*"   
+            agent_path: /phenix/userdata/ccDropper/agents
+            agent: miniccc
+            auto_start: true
+            service_type: sysinitv
+            agent_args: "-parent 172.16.10.254"
+          - hostname: site_A_server
+            agent_path: /phenix/userdata/ccDropper/agents 
+            agent: miniccc
+            auto_start: true
+            service_type: systemd
+            agent_args: "-serial /dev/virtio-ports/cc"
