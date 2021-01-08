@@ -54,41 +54,60 @@ Build and Use:
    Copy in Command and Control agents (ex. miniccc)
    sudo cp /home/ubuntu/minimega/bin/miniccc* /phenix/userdata/ccDropper/agent
 
-   Application will generate a log file at /tmp/ccDropperLog to help debug issues
-
+   Application will generate a log file at /tmp/ccDropperLog to help debug issues 
+   Additionally /tmp/ccDropper.out is the denerated json output passed back to phenix
 
 Configuration: 
    Configuration is done in the scenario file loaded into phenix.
    Specify ccDropper as an experiment level user app.
    Metadata allows for per host configuration by hostname in cc_hosts 
      hostname:  "*" will apply to all hosts unless host is given specific config
+	hostname accepts basic regex expersions like .*router
      agent_path: Defines path for application to find user agent
      agent: Name of user agent on disk 
      auto_start: Determines if agent auto starts (true / false)
-     service_type: sysinitv / systemd ignored for windows
+     service_type: sysinitv / systemd /custom ignored for windows
      agent_args: String passed to agent at runtime
+     service_custom: Only used if service_type set to custom
+          inject_path: Path where startup script will land on vm
+          script_path: Path to a preexistion script that the startup script should append to 
+		Can be any file even non existant if user does not desire to preappend to startup file
+
+In the below example vms with router in the name will use the 3rd configuration
+vms with site_B_workstation will use the 1st configuration 
+all other vms will use the 2nd configuration
+
+The 3rd configuration is custom and will grab all lines from script_path
+"/phenix/userdata/ccDropper/custom/vyatta.sh" and append then to the starup file
+which will be placed in the inject_path "/opt/vyatta/etc/config/scripts ..." 
+of any vm with a name matches .*router
 
 Example with miniccc agent: 
-
    spec:
   apps:
     experiment:     
-    - name: test-user-app
-      # The map associated with the app name here would contain any
-      # configuration details needed to configure the app.
-      metadata: {}
     - name: ccDropper
       metadata:
         cc_hosts:
-          - hostname: "*"   
+          - hostname: site_B_workstation
+            agent_path: /phenix/userdata/ccDropper/agents
+            agent: miniccc
+            auto_start: true
+            service_type: systemd
+            agent_args: "-parent 172.16.10.254"
+          - hostname: "*"
             agent_path: /phenix/userdata/ccDropper/agents
             agent: miniccc
             auto_start: true
             service_type: sysinitv
-            agent_args: "-parent 172.16.10.254"
-          - hostname: site_A_server
-            agent_path: /phenix/userdata/ccDropper/agents 
+            agent_args: "-serial /dev/virtio-ports/cc"
+          - hostname: ".*router"
+            agent_path: /phenix/userdata/ccDropper/agents
             agent: miniccc
             auto_start: true
-            service_type: systemd
+            service_type: custom
             agent_args: "-serial /dev/virtio-ports/cc"
+            service_custom:
+                    script_path: "/phenix/userdata/ccDropper/custom/vyatta.sh"
+                    inject_path: "/opt/vyatta/etc/config/scripts/vyatta-postconfig-bootup.script"
+
